@@ -64,30 +64,95 @@ class Individual_Grid(object):
 
     # Mutate a genome into a new genome.  Note that this is a _genome_, not an individual!
     def mutate(self, genome):
-        # STUDENT implement a mutation operator, also consider not mutating this individual
-        # STUDENT also consider weighting the different tile types so it's not uniformly random
-        # STUDENT consider putting more constraints on this to prevent pipes in the air, etc
+        mutation_rate = 0.03
 
-        left = 1
-        right = width - 1
-        for y in range(height):
-            for x in range(left, right):
-                pass
+        for x in range(1, width-1):
+
+            if random.random() < mutation_rate:
+
+                # remove old object
+                for y in range(1,height-1):
+                    if genome[y][x] != "m" and genome[y][x] not in ["f","v"]:
+                        genome[y][x] = "-"
+
+
+                choice = random.random()
+
+
+                # create block
+                if choice < 0.35:
+                    y = random.randint(8,13)
+                    genome[y][x] = random.choice(["X","B","?"])
+
+
+                # create coin
+                elif choice < 0.55:
+                    y = random.randint(5,10)
+                    genome[y][x] = "o"
+
+
+                # create enemy
+                elif choice < 0.75:
+                    genome[14][x] = "E"
+
+
+                # create pipe
+                else:
+                    pipe_height = random.randint(2,5)
+
+                    genome[15-pipe_height][x] = "T"
+
+                    for y in range(16-pipe_height,15):
+                        genome[y][x] = "|"
+
+
         return genome
 
     # Create zero or more children from self and other
+        # Create zero or more children from self and other
     def generate_children(self, other):
+
         new_genome = copy.deepcopy(self.genome)
-        # Leaving first and last columns alone...
-        # do crossover with other
-        left = 1
-        right = width - 1
-        for y in range(height):
-            for x in range(left, right):
-                # STUDENT Which one should you take?  Self, or other?  Why?
-                # STUDENT consider putting more constraints on this to prevent pipes in the air, etc
-                pass
-        # do mutation; note we're returning a one-element tuple here
+
+
+        # Column crossover instead of tile crossover
+        for x in range(1, width - 1):
+
+            if random.random() < 0.5:
+
+                for y in range(height):
+                    new_genome[y][x] = other.genome[y][x]
+
+
+        # mutation
+        new_genome = self.mutate(new_genome)
+
+
+        # repair level
+        for x in range(width):
+
+            # always keep floor
+            new_genome[15][x] = "X"
+
+
+            # remove floating enemies
+            if new_genome[14][x] == "E":
+                if new_genome[15][x] != "X":
+                    new_genome[14][x] = "-"
+
+
+            # remove floating blocks
+            for y in range(1,14):
+
+                if new_genome[y][x] in ["X","B","?"]:
+
+                    if all(
+                        new_genome[y2][x] == "-"
+                        for y2 in range(y+1,15)
+                    ):
+                        new_genome[y][x] = "-"
+
+
         return (Individual_Grid(new_genome),)
 
     # Turn the genome into a level string (easy for this genome)
@@ -102,22 +167,82 @@ class Individual_Grid(object):
         g[15][:] = ["X"] * width
         g[14][0] = "m"
         g[7][-1] = "v"
-        for col in range(8, 14):
-            g[col][-1] = "f"
+        for row in range(8, 14):
+            g[row][-1] = "f"
         for col in range(14, 16):
             g[col][-1] = "X"
         return cls(g)
 
     @classmethod
     def random_individual(cls):
-        # STUDENT consider putting more constraints on this to prevent pipes in the air, etc
-        # STUDENT also consider weighting the different tile types so it's not uniformly random
-        g = [random.choices(options, k=width) for row in range(height)]
+
+        g = [["-" for col in range(width)] for row in range(height)]
+
+
+        # floor
         g[15][:] = ["X"] * width
+
+
+        # mario
         g[14][0] = "m"
+
+
+        # flag
         g[7][-1] = "v"
-        g[8:14][-1] = ["f"] * 6
-        g[14:16][-1] = ["X", "X"]
+
+        for row in range(8,14):
+            g[row][-1] = "f"
+
+
+        for x in range(5,width-5):
+
+            chance = random.random()
+
+
+            # enemy
+            if chance < 0.10:
+
+                g[14][x] = "E"
+
+
+            # pipe
+            elif chance < 0.18:
+
+                h = random.randint(2,4)
+
+                g[15-h][x] = "T"
+
+                for y in range(16-h,15):
+                    g[y][x] = "|"
+
+
+            # block structure
+            elif chance < 0.35:
+
+                amount = random.randint(1,3)
+
+                for i in range(amount):
+
+                    if x+i < width-1:
+                        g[13-i][x+i] = random.choice([
+                            "X",
+                            "B",
+                            "?"
+                        ])
+
+
+            # coins
+            elif chance < 0.55:
+
+                y = random.randint(7,11)
+                g[y][x] = "o"
+
+
+        # goal protection
+        g[14][-1] = "X"
+        g[15][-1] = "X"
+
+
         return cls(g)
 
 
@@ -158,12 +283,12 @@ class Individual_DE(object):
         # STUDENT Add more metrics?
         # STUDENT Improve this with any code you like
         coefficients = dict(
-            meaningfulJumpVariance=0.5,
-            negativeSpace=0.6,
-            pathPercentage=0.5,
-            emptyPercentage=0.6,
-            linearity=-0.5,
-            solvability=2.0
+            meaningfulJumpVariance=1.5,
+            negativeSpace=1.0,
+            pathPercentage=2.0,
+            emptyPercentage=0.2,
+            linearity=-0.2,
+            solvability=5.0
         )
         penalties = 0
         # STUDENT For example, too many stairs are unaesthetic.  Let's penalize that
@@ -179,98 +304,58 @@ class Individual_DE(object):
             self.calculate_fitness()
         return self._fitness
 
-    def mutate(self, new_genome):
-        # STUDENT How does this work?  Explain it in your writeup.
-        # STUDENT consider putting more constraints on this, to prevent generating weird things
-        if random.random() < 0.1 and len(new_genome) > 0:
-            to_change = random.randint(0, len(new_genome) - 1)
-            de = new_genome[to_change]
-            new_de = de
-            x = de[0]
-            de_type = de[1]
-            choice = random.random()
-            if de_type == "4_block":
-                y = de[2]
-                breakable = de[3]
-                if choice < 0.33:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                elif choice < 0.66:
-                    y = offset_by_upto(y, height / 2, min=0, max=height - 1)
-                else:
-                    breakable = not de[3]
-                new_de = (x, de_type, y, breakable)
-            elif de_type == "5_qblock":
-                y = de[2]
-                has_powerup = de[3]  # boolean
-                if choice < 0.33:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                elif choice < 0.66:
-                    y = offset_by_upto(y, height / 2, min=0, max=height - 1)
-                else:
-                    has_powerup = not de[3]
-                new_de = (x, de_type, y, has_powerup)
-            elif de_type == "3_coin":
-                y = de[2]
-                if choice < 0.5:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                else:
-                    y = offset_by_upto(y, height / 2, min=0, max=height - 1)
-                new_de = (x, de_type, y)
-            elif de_type == "7_pipe":
-                h = de[2]
-                if choice < 0.5:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                else:
-                    h = offset_by_upto(h, 2, min=2, max=height - 4)
-                new_de = (x, de_type, h)
-            elif de_type == "0_hole":
-                w = de[2]
-                if choice < 0.5:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                else:
-                    w = offset_by_upto(w, 4, min=1, max=width - 2)
-                new_de = (x, de_type, w)
-            elif de_type == "6_stairs":
-                h = de[2]
-                dx = de[3]  # -1 or 1
-                if choice < 0.33:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                elif choice < 0.66:
-                    h = offset_by_upto(h, 8, min=1, max=height - 4)
-                else:
-                    dx = -dx
-                new_de = (x, de_type, h, dx)
-            elif de_type == "1_platform":
-                w = de[2]
-                y = de[3]
-                madeof = de[4]  # from "?", "X", "B"
-                if choice < 0.25:
-                    x = offset_by_upto(x, width / 8, min=1, max=width - 2)
-                elif choice < 0.5:
-                    w = offset_by_upto(w, 8, min=1, max=width - 2)
-                elif choice < 0.75:
-                    y = offset_by_upto(y, height, min=0, max=height - 1)
-                else:
-                    madeof = random.choice(["?", "X", "B"])
-                new_de = (x, de_type, w, y, madeof)
-            elif de_type == "2_enemy":
-                pass
-            new_genome.pop(to_change)
-            heapq.heappush(new_genome, new_de)
-        return new_genome
+    def mutate(self, genome):
+        mutation_rate = 0.05
 
-    def generate_children(self, other):
-        # STUDENT How does this work?  Explain it in your writeup.
-        pa = random.randint(0, len(self.genome) - 1)
-        pb = random.randint(0, len(other.genome) - 1)
-        a_part = self.genome[:pa] if len(self.genome) > 0 else []
-        b_part = other.genome[pb:] if len(other.genome) > 0 else []
-        ga = a_part + b_part
-        b_part = other.genome[:pb] if len(other.genome) > 0 else []
-        a_part = self.genome[pa:] if len(self.genome) > 0 else []
-        gb = b_part + a_part
-        # do mutation
-        return Individual_DE(self.mutate(ga)), Individual_DE(self.mutate(gb))
+        for x in range(2, width-2):
+
+            if random.random() < mutation_rate:
+
+                # clear this column
+                for y in range(1,14):
+                    genome[y][x] = "-"
+
+                choice = random.random()
+
+
+                # platform / blocks
+                if choice < 0.35:
+
+                    height_block = random.randint(1,3)
+
+                    for h in range(height_block):
+                        genome[13-h][x] = random.choice([
+                            "X",
+                            "B",
+                            "?"
+                        ])
+
+
+                # coins above ground
+                elif choice < 0.55:
+
+                    y = random.randint(7,11)
+                    genome[y][x] = "o"
+
+
+                # enemy only on ground
+                elif choice < 0.75:
+
+                    genome[14][x] = "E"
+
+
+                # pipe
+                else:
+
+                    pipe_height = random.randint(2,4)
+
+                    genome[15-pipe_height][x] = "T"
+
+                    for y in range(16-pipe_height,15):
+                        genome[y][x] = "|"
+
+
+        return genome
 
     # Apply the DEs to a base level.
     def to_level(self):
@@ -324,31 +409,94 @@ class Individual_DE(object):
         return Individual_DE(g)
 
     @classmethod
-    def random_individual(_cls):
-        # STUDENT Maybe enhance this
-        elt_count = random.randint(8, 128)
-        g = [random.choice([
-            (random.randint(1, width - 2), "0_hole", random.randint(1, 8)),
-            (random.randint(1, width - 2), "1_platform", random.randint(1, 8), random.randint(0, height - 1), random.choice(["?", "X", "B"])),
-            (random.randint(1, width - 2), "2_enemy"),
-            (random.randint(1, width - 2), "3_coin", random.randint(0, height - 1)),
-            (random.randint(1, width - 2), "4_block", random.randint(0, height - 1), random.choice([True, False])),
-            (random.randint(1, width - 2), "5_qblock", random.randint(0, height - 1), random.choice([True, False])),
-            (random.randint(1, width - 2), "6_stairs", random.randint(1, height - 4), random.choice([-1, 1])),
-            (random.randint(1, width - 2), "7_pipe", random.randint(2, height - 4))
-        ]) for i in range(elt_count)]
-        return Individual_DE(g)
+    def random_individual(cls):
+        # STUDENT consider putting more constraints on this to prevent pipes in the air
+        # STUDENT also consider weighting the different tile types so it's not uniformly random
+
+        g = [["-" for col in range(width)] for row in range(height)]
+
+        # floor
+        g[15][:] = ["X"] * width
+
+        # mario start
+        g[14][0] = "m"
+
+        # goal
+        g[7][-1] = "v"
+        for row in range(8,14):
+            g[row][-1] = "f"
+
+        # Generate structures instead of random noise
+        for x in range(5, width - 5):
+
+            chance = random.random()
+
+            # platforms
+            if chance < 0.08:
+                y = random.randint(8,12)
+                length = random.randint(3,8)
+
+                for i in range(length):
+                    if x+i < width-1:
+                        g[y][x+i] = "X"
+
+
+            # blocks
+            elif chance < 0.12:
+                y = random.randint(8,12)
+                g[y][x] = random.choice(["X","B","?"])
+
+
+            # coins
+            elif chance < 0.18:
+                y = random.randint(6,10)
+                g[y][x] = "o"
+
+
+            # enemies
+            elif chance < 0.22:
+                g[14][x] = "E"
+
+
+            # pipes
+            elif chance < 0.25:
+                height_pipe = random.randint(2,5)
+
+                g[15-height_pipe][x] = "T"
+
+                for y in range(16-height_pipe,15):
+                    g[y][x] = "|"
+
+
+        g[14:16][-1] = ["X","X"]
+
+        return cls(g)
 
 
 Individual = Individual_Grid
 
-
 def generate_successors(population):
     results = []
-    # STUDENT Design and implement this
-    # Hint: Call generate_children() on some individuals and fill up results.
-    return results
 
+    while len(results) < len(population):
+
+        # Tournament selection
+        tournament_size = 5
+
+        # Select parent 1
+        candidates = random.sample(population, tournament_size)
+        parent1 = max(candidates, key=Individual.fitness)
+
+        # Select parent 2
+        candidates = random.sample(population, tournament_size)
+        parent2 = max(candidates, key=Individual.fitness)
+
+        # Crossover + mutation
+        children = parent1.generate_children(parent2)
+
+        results.extend(children)
+
+    return results[:len(population)]
 
 def ga():
     # STUDENT Feel free to play with this parameter

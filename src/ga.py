@@ -51,6 +51,8 @@ class Individual_Grid(object):
             emptyPercentage=0.6,
             linearity=-0.5,
             solvability=2.0
+            meaningfulJumps=0.4
+            decorationPercentage=0.3
         )
         self._fitness = sum(map(lambda m: coefficients[m] * measurements[m],
                                 coefficients))
@@ -478,10 +480,24 @@ Individual = Individual_Grid
 def generate_successors(population):
     results = []
 
-    while len(results) < len(population):
+    """
+    Selection Strat #1: Elitist
+    always carry best individual to next gen unchanged
+    Guarantees fitness never regresses due to tournament loss or unlucky mutation
+    """
+    elite_count = max(1, int(0.02 * len(population)))
+    elites = heapq.nlargest(elite_count, population, key=Individual.fitness)
+    results.extend(elites)
 
-        # Tournament selection
-        tournament_size = 5
+    """
+    Selection Strat #2: Tournament
+    sample small, random subset of population and fittest member = parent
+    Balance explore v exploit: small tournament allows weaker individuals
+    to occasionally pass through, still biasing fitness
+    """
+    tournament_size = 5
+
+    while len(results) < len(population):
 
         # Select parent 1
         candidates = random.sample(population, tournament_size)

@@ -50,8 +50,8 @@ class Individual_Grid(object):
             pathPercentage=0.5,
             emptyPercentage=0.6,
             linearity=-0.5,
-            solvability=2.0
-            meaningfulJumps=0.4
+            solvability=2.0,
+            meaningfulJumps=0.4,
             decorationPercentage=0.3
         )
         self._fitness = sum(map(lambda m: coefficients[m] * measurements[m],
@@ -290,12 +290,25 @@ class Individual_DE(object):
             pathPercentage=2.0,
             emptyPercentage=0.2,
             linearity=-0.2,
-            solvability=5.0
+            solvability=5.0,
+            decorationPercentage=1.0
         )
         penalties = 0
-        # STUDENT For example, too many stairs are unaesthetic.  Let's penalize that
-        if len(list(filter(lambda de: de[1] == "6_stairs", self.genome))) > 5:
-            penalties -= 2
+        
+        # too many stairs look unaesthetic: penalize past a couple
+        stairs_count =  sum(1 for de in self.genome if de[1] == "6_stairs")
+        if stairs_count > 5:
+            penalties -= 2 * (stairs_count - 5)
+        
+        # too many holes == displeasing or unsolvable lvl: discourage piling them up
+        hole_count = sum(1 for de in self.genome if de[1] == "0_hole")
+        if hole_count > 6:
+            penalties -= 1 * (hole_count - 6)
+
+        # guard against empty/nearly empty lvls: prefer lvls with enough content
+        if len(self.genome) < 10:
+            penalties -= (10 - len(self.genome)) * 0.3
+
         # STUDENT If you go for the FI-2POP extra credit, you can put constraint calculation in here too and cache it in a new entry in __slots__.
         self._fitness = sum(map(lambda m: coefficients[m] * measurements[m],
                                 coefficients)) + penalties
@@ -306,58 +319,129 @@ class Individual_DE(object):
             self.calculate_fitness()
         return self._fitness
 
+    """
+    Mutate operates on list of design elements rather than tile spaces
+    Each design element has a chance to be "nudged" by offset_by_upto
+    which sligtly shifts the value within a valid range.
+    These are softer mutations which explore similar variations of an 
+    existing design choice. Because DE genomes are variable length,
+    mutation has a chance to insert a brand new DE or remove one,
+    reinforcing evolution over generations
+    """
     def mutate(self, genome):
-        mutation_rate = 0.05
+        mutation_rate = 0.15
+        insertion_rate = 0.10
+        deletion_rate = 0.10
 
-        for x in range(2, width-2):
+        new_genome = []
 
+        for de in genome:
             if random.random() < mutation_rate:
+                new_genome.append(self._mutate_de(de))
+            else:
+                new_genome.append(de)
+ 
+        if random.random() < insertion_rate:
+            new_genome.append(self._random_de(random.randint(1, width - 2)))
+ 
+        if len(new_genome) > 1 and random.random() < deletion_rate:
+            new_genome.pop(random.randrange(len(new_genome)))
+ 
+        return new_genome
 
-                # clear this column
-                for y in range(1,14):
-                    genome[y][x] = "-"
+    # mutate design elements slightly 
+    def _mutate_de(de):
+        de_type = de[1]
+        x = offset_by_upto(de[0], (width / 10) ** 2, min=1, max=width - 2)
 
-                choice = random.random()
+        if de_type == "0_hole":
+            w = offset_by_upto(de[2], 4, min=1, max=8)
+            return (x, de_type, w)
+        elif de_type == "1_platform":
+            w = offset_by_upto(de[2], 9, min=2, max=10)
+            h = offset_by_upto(de[3], 4, min=0, max=6)
+            madeof = de[4] if random.random() < 0.8 else random.choice(["X", "B", "?"])
+            return (x, de_type, w, h, madeof)
+        elif de_type == "2_enemy":
+            return (x, de_type)
+        elif de_type == "3_coin":
+            y = offset_by_upto(de[2], 4, min=2, max=11)
+            return (x, de_type, y)
+        elif de_type == "4_block":
+            y = offset_by_upto(de[2], 4, min=2, max=13)
+            breakable = de[3] if random.random() < 0.8 else not de[3]
+            return (x, de_type, y, breakable)
+        elif de_type == "5_qblock":
+            y = offset_by_upto(de[2], 4, min=2, max=13)
+            has_powerup = de[3] if random.random() < 0.8 else not de[3]
+            return (x, de_type, y, has_powerup)
+        elif de_type == "6_stairs":
+            h = offset_by_upto(de[2], 4, min=2, max=6)
+            dx = de[3] if random.random() < 0.8 else -de[3]
+            return (x, de_type, h, dx)
+        elif de_type == "7_pipe":
+            h = offset_by_upto(de[2], 4, min=2, max=5)
+            return (x, de_type, h)
+        return de
 
+    # creates brand new design element at pos x
+    # used for population initialization and mutation insertion op
+    def _random_de(x):
+        choice = random.random()
+ 
+        if choice < 0.12:
+            w = random.randint(1, 5)
+            return (x, "0_hole", w)
+        elif choice < 0.32:
+            w = random.randint(3, 8)
+            h = random.randint(1, 5)
+            madeof = random.choice(["X", "B", "?"])
+            return (x, "1_platform", w, h, madeof)
+        elif choice < 0.45:
+            return (x, "2_enemy")
+        elif choice < 0.60:
+            y = random.randint(6, 11)
+            return (x, "3_coin", y)
+        elif choice < 0.72:
+            y = random.randint(9, 13)
+            breakable = random.random() < 0.5
+            return (x, "4_block", y, breakable)
+        elif choice < 0.84:
+            y = random.randint(9, 13)
+            has_powerup = random.random() < 0.4
+            return (x, "5_qblock", y, has_powerup)
+        elif choice < 0.92:
+            h = random.randint(2, 5)
+            dx = random.choice([-1, 1])
+            return (x, "6_stairs", h, dx)
+        else:
+            h = random.randint(2, 4)
+            return (x, "7_pipe", h)
 
-                # platform / blocks
-                if choice < 0.35:
+    """
+    Crossover for DE: variable-point crossover per Sorenson and Pasquier
+    instead of grid, we have variable length list, so cannot use gene index
+    Choose a cut-point(x-coord along lvl): DEs split into before and after cut
+    Child then takes one parents elements before and one parents elements after cut
+    Generate 2 children so halves left behind aren't wasted.
+    """
+    def generate_children(self, other):
+        cut_point = random.randint(1, width - 2)
 
-                    height_block = random.randint(1,3)
+        child1_genome = (
+            [de for de in self.genome if de[0] < cut_point] +
+            [de for de in other.genome if de[0] >= cut_point]
+        )
+        child2_genome = (
+            [de for de in other.genome if de[0] < cut_point] +
+            [de for de in self.genome if de[0] >= cut_point]
+        )
+ 
+        child1_genome = self.mutate(child1_genome)
+        child2_genome = self.mutate(child2_genome)
+ 
+        return (Individual_DE(child1_genome), Individual_DE(child2_genome))
 
-                    for h in range(height_block):
-                        genome[13-h][x] = random.choice([
-                            "X",
-                            "B",
-                            "?"
-                        ])
-
-
-                # coins above ground
-                elif choice < 0.55:
-
-                    y = random.randint(7,11)
-                    genome[y][x] = "o"
-
-
-                # enemy only on ground
-                elif choice < 0.75:
-
-                    genome[14][x] = "E"
-
-
-                # pipe
-                else:
-
-                    pipe_height = random.randint(2,4)
-
-                    genome[15-pipe_height][x] = "T"
-
-                    for y in range(16-pipe_height,15):
-                        genome[y][x] = "|"
-
-
-        return genome
 
     # Apply the DEs to a base level.
     def to_level(self):
@@ -407,72 +491,21 @@ class Individual_DE(object):
     @classmethod
     def empty_individual(_cls):
         # STUDENT Maybe enhance this
-        g = []
-        return Individual_DE(g)
+        return _cls([])
 
     @classmethod
     def random_individual(cls):
         # STUDENT consider putting more constraints on this to prevent pipes in the air
         # STUDENT also consider weighting the different tile types so it's not uniformly random
 
-        g = [["-" for col in range(width)] for row in range(height)]
-
-        # floor
-        g[15][:] = ["X"] * width
-
-        # mario start
-        g[14][0] = "m"
-
-        # goal
-        g[7][-1] = "v"
-        for row in range(8,14):
-            g[row][-1] = "f"
-
-        # Generate structures instead of random noise
-        for x in range(5, width - 5):
-
-            chance = random.random()
-
-            # platforms
-            if chance < 0.08:
-                y = random.randint(8,12)
-                length = random.randint(3,8)
-
-                for i in range(length):
-                    if x+i < width-1:
-                        g[y][x+i] = "X"
-
-
-            # blocks
-            elif chance < 0.12:
-                y = random.randint(8,12)
-                g[y][x] = random.choice(["X","B","?"])
-
-
-            # coins
-            elif chance < 0.18:
-                y = random.randint(6,10)
-                g[y][x] = "o"
-
-
-            # enemies
-            elif chance < 0.22:
-                g[14][x] = "E"
-
-
-            # pipes
-            elif chance < 0.25:
-                height_pipe = random.randint(2,5)
-
-                g[15-height_pipe][x] = "T"
-
-                for y in range(16-height_pipe,15):
-                    g[y][x] = "|"
-
-
-        g[14:16][-1] = ["X","X"]
-
-        return cls(g)
+        elements = []
+        x = random.randint(4, 10)
+        while x < width - 5:
+            elements.append(cls._random_de(x))
+            # Space design elements out irregularly so they don't overlap
+            # (to_level applies later elements on top of earlier ones).
+            x += random.randint(4, 12)
+        return cls(elements)
 
 
 Individual = Individual_Grid
